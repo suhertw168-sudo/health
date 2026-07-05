@@ -103,7 +103,7 @@
     padding:5px 6px;border:1px solid var(--line);border-radius:6px;font-size:14px;
   }
   .setRow .unit{color:var(--ink-soft);font-size:13px;}
-  .switch{position:relative;width:44px;height:24px;flex:none;}
+  .switch{position:relative;display:inline-block;width:44px;height:24px;flex:none;}
   .switch input{opacity:0;width:0;height:0;}
   .slider{
     position:absolute;inset:0;background:#C4D4D8;border-radius:24px;
@@ -198,7 +198,7 @@
     <summary>設定</summary>
     <div class="setRow">
       <label>喝水提醒</label>
-      <span class="switch"><input type="checkbox" id="waterOn" checked><span class="slider"></span></span>
+      <label class="switch"><input type="checkbox" id="waterOn" checked><span class="slider"></span></label>
     </div>
     <div class="setRow">
       <label>喝水間隔</label>
@@ -218,7 +218,7 @@
     </div>
     <div class="setRow">
       <label>站立提醒(Apple Watch 已有可關閉)</label>
-      <span class="switch"><input type="checkbox" id="standOn"><span class="slider"></span></span>
+      <label class="switch"><input type="checkbox" id="standOn"><span class="slider"></span></label>
     </div>
     <div class="setRow">
       <label>站立間隔</label>
@@ -226,11 +226,11 @@
     </div>
     <div class="setRow">
       <label>提醒時段</label>
-      <span><input type="time" id="workStart" value="09:00"> ~ <input type="time" id="workEnd" value="18:00"></span>
+      <span><input type="time" id="workStart" value="10:00"> ~ <input type="time" id="workEnd" value="19:00"></span>
     </div>
     <div class="setRow">
       <label>午休不提醒</label>
-      <span class="switch"><input type="checkbox" id="lunchOn" checked><span class="slider"></span></span>
+      <label class="switch"><input type="checkbox" id="lunchOn" checked><span class="slider"></span></label>
     </div>
     <div class="setRow">
       <label>午休時段</label>
@@ -238,7 +238,7 @@
     </div>
     <div class="setRow">
       <label>提示音</label>
-      <span class="switch"><input type="checkbox" id="soundOn" checked><span class="slider"></span></span>
+      <label class="switch"><input type="checkbox" id="soundOn" checked><span class="slider"></span></label>
     </div>
   </details>
 
@@ -272,6 +272,7 @@ let nextWater = 0, nextStand = 0, paused = false;
 function loadSettings(){
   let s = {};
   try{ s = JSON.parse(localStorage.getItem("healthReminderSettings")||"{}"); }catch(e){}
+  if(!s.v2){ delete s.workStart; delete s.workEnd; }  /* 舊版設定改用新預設時段 */
   SETTING_KEYS.forEach(k=>{
     const el = $(k);
     if(s[k] === undefined) return;
@@ -280,7 +281,7 @@ function loadSettings(){
   });
 }
 function saveSettings(){
-  const s = {};
+  const s = {v2:true};
   SETTING_KEYS.forEach(k=>{
     const el = $(k);
     s[k] = (el.type === "checkbox") ? el.checked : el.value;
@@ -352,18 +353,33 @@ function askPermission(){
   Notification.requestPermission().then(updatePermBanner);
 }
 function updatePermBanner(){
-  const show = ("Notification" in window) && Notification.permission !== "granted";
-  $("permBanner").style.display = show ? "block" : "none";
+  const b = $("permBanner");
+  if(!("Notification" in window)){ b.style.display = "none"; return; }
+  if(Notification.permission === "granted"){ b.style.display = "none"; return; }
+  b.style.display = "block";
+  if(Notification.permission === "denied"){
+    b.innerHTML = "桌面通知已被封鎖,縮小視窗時會收不到提醒。<br>請點網址列左邊的鎖頭圖示 → 通知 → 改為「允許」,然後重新整理頁面。";
+  }else{
+    b.innerHTML = '尚未開啟桌面通知,縮小視窗時會收不到提醒。<br><button onclick="askPermission()">開啟桌面通知</button>';
+  }
 }
-function beep(){
-  if(!$("soundOn").checked) return;
+/* 共用 AudioContext:靠使用者點擊解鎖,背景時也能發聲 */
+let audioCtx = null;
+document.addEventListener("click", ()=>{
   try{
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.connect(g); g.connect(ctx.destination);
-    o.frequency.value = 880; g.gain.setValueAtTime(0.25, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
-    o.start(); o.stop(ctx.currentTime + 0.6);
+    if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state === "suspended") audioCtx.resume();
+  }catch(e){}
+});
+function beep(){
+  if(!$("soundOn").checked || !audioCtx) return;
+  try{
+    if(audioCtx.state === "suspended") audioCtx.resume();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.frequency.value = 880; g.gain.setValueAtTime(0.25, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
+    o.start(); o.stop(audioCtx.currentTime + 0.6);
   }catch(e){}
 }
 function showModal(icon, title, body, btns){
@@ -408,11 +424,23 @@ function notify(title, body, tag){
   }
 }
 function testNotify(){
-  if(("Notification" in window) && Notification.permission !== "granted"){
-    askPermission();
+  const send = ()=>notify("測試通知 ✅", "縮小視窗時就是靠這個提醒你", "test");
+  let stateMsg;
+  if(!("Notification" in window)){
+    stateMsg = "此瀏覽器不支援桌面通知,縮小視窗時無法提醒";
+  }else if(Notification.permission === "granted"){
+    send();
+    stateMsg = "桌面通知已允許,右下角應該同時跳出一則通知";
+  }else if(Notification.permission === "denied"){
+    stateMsg = "桌面通知被封鎖了!請點網址列的鎖頭圖示 → 通知 → 允許,再重新整理";
+  }else{
+    stateMsg = "請在瀏覽器跳出的詢問視窗按「允許」,允許後會再發一則測試通知";
+    Notification.requestPermission().then(p=>{
+      updatePermBanner();
+      if(p === "granted") send();
+    });
   }
-  notify("測試通知 ✅", "看得到這則就代表桌面通知正常", "test");
-  showModal("✅","測試彈窗","提醒時間到會像這樣跳出來,按掉才會消失",[
+  showModal("✅","測試彈窗", stateMsg, [
     {text:"知道了", cls:"main", fn:closeModal}
   ]);
 }
@@ -466,9 +494,13 @@ function render(){
   $("waterNext").textContent = working && $("waterOn").checked ? ("預計 " + fmtClock(nextWater)) : stateText;
   $("standNext").textContent = working && $("standOn").checked ? ("預計 " + fmtClock(nextStand)) : stateText;
 
-  document.title = working
-    ? ("💧" + fmtCountdown(nextWater).slice(0,2) + "分 · 健康提醒")
-    : "健康提醒";
+  if($("modalWrap").classList.contains("show")){
+    document.title = "🔔 有提醒!點回來看";
+  }else{
+    document.title = working
+      ? ("💧" + fmtCountdown(nextWater).slice(0,2) + "分 · 健康提醒")
+      : "健康提醒";
+  }
 }
 function togglePause(){
   paused = !paused;
@@ -484,14 +516,12 @@ function togglePause(){
 
 /* ---------- 啟動 ---------- */
 loadSettings();
+saveSettings();  /* 完成設定版本遷移 */
 updatePermBanner();
 nextWater = Date.now() + mins($("waterMin").value);
 nextStand = Date.now() + mins($("standMin").value);
 render();
 setInterval(tick, 1000);
-if(("Notification" in window) && Notification.permission === "default"){
-  $("permBanner").style.display = "block";
-}
 </script>
 </body>
 </html>
