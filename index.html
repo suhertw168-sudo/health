@@ -385,7 +385,9 @@ function inWorkTime(){
   const now = new Date();
   const cur = now.getHours()*60 + now.getMinutes();
   const ws = hmToMin($("workStart").value), we = hmToMin($("workEnd").value);
-  if(cur < ws || cur >= we) return false;
+  const cross = ws > we;  /* 結束比開始早 → 跨日時段,例如 10:00~01:00 */
+  const inRange = cross ? (cur >= ws || cur < we) : (cur >= ws && cur < we);
+  if(!inRange) return false;
   if($("lunchOn").checked){
     const ls = hmToMin($("lunchStart").value), le = hmToMin($("lunchEnd").value);
     if(cur >= ls && cur < le) return false;
@@ -554,9 +556,14 @@ function fmtClock(t){
   return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
 }
 function afterEnd(t){
-  const d = new Date(t), today = new Date();
-  if(d.getDate() !== today.getDate()) return true;
-  return (d.getHours()*60 + d.getMinutes()) >= hmToMin($("workEnd").value);
+  const n = new Date();
+  const cur = n.getHours()*60 + n.getMinutes();
+  const ws = hmToMin($("workStart").value), we = hmToMin($("workEnd").value);
+  /* 計算本輪時段實際結束的時間點(跨日時段結束在隔天) */
+  let endDay = n.getDate();
+  if(ws > we && cur >= ws) endDay += 1;
+  const endTs = new Date(n.getFullYear(), n.getMonth(), endDay, 0, we).getTime();
+  return t >= endTs;
 }
 function render(){
   const ml = getMl(), goal = Math.max(100, parseInt($("goalMl").value)||2000);
@@ -571,7 +578,19 @@ function render(){
   $("waterDone").textContent = "喝一口 +" + sipAmt() + "ml";
 
   const working = inWorkTime() && !paused;
-  const stateText = paused ? "已暫停" : (inWorkTime() ? "" : "非提醒時段");
+  let stateText = "";
+  if(paused){ stateText = "已暫停"; }
+  else if(!inWorkTime()){
+    const n = new Date();
+    const cur = n.getHours()*60 + n.getMinutes();
+    const curHM = String(n.getHours()).padStart(2,"0") + ":" + String(n.getMinutes()).padStart(2,"0");
+    const ls = $("lunchStart").value, le = $("lunchEnd").value;
+    if($("lunchOn").checked && cur >= hmToMin(ls) && cur < hmToMin(le)){
+      stateText = "午休中(" + ls + "~" + le + "),暫停提醒";
+    }else{
+      stateText = "現在 " + curHM + ",不在時段 " + $("workStart").value + "~" + $("workEnd").value + " 內";
+    }
+  }
 
   $("waterCard").classList.toggle("disabled", !$("waterOn").checked);
   $("standCard").classList.toggle("disabled", !$("standOn").checked);
