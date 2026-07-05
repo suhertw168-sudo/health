@@ -27,6 +27,13 @@
   header{text-align:center;margin-bottom:20px;}
   header h1{font-size:22px;font-weight:700;letter-spacing:2px;}
   header p{color:var(--ink-soft);font-size:13px;margin-top:4px;}
+  #notiState{
+    display:inline-block;margin-top:8px;font-size:13px;font-weight:700;
+    padding:4px 12px;border-radius:20px;background:var(--card);
+    border:1px solid var(--line);
+  }
+  #notiState.ok{color:var(--ok);}
+  #notiState.bad{color:#B91C1C;}
 
   /* 通知權限提示 */
   #permBanner{
@@ -95,6 +102,7 @@
   }
   .setRow:last-child{border-bottom:none;}
   .setRow label{flex:1;}
+  .setRow label.switch{flex:none;}
   .setRow input[type=number]{
     width:64px;padding:6px;border:1px solid var(--line);border-radius:6px;
     font-size:14px;text-align:center;
@@ -103,18 +111,18 @@
     padding:5px 6px;border:1px solid var(--line);border-radius:6px;font-size:14px;
   }
   .setRow .unit{color:var(--ink-soft);font-size:13px;}
-  .switch{position:relative;display:inline-block;width:36px;height:20px;flex:none;}
+  .switch{position:relative;display:inline-block;width:44px;height:24px;flex:none;}
   .switch input{opacity:0;width:0;height:0;}
   .slider{
-    position:absolute;inset:0;background:#C4D4D8;border-radius:20px;
+    position:absolute;inset:0;background:#C4D4D8;border-radius:24px;
     cursor:pointer;transition:.2s;
   }
   .slider:before{
-    content:"";position:absolute;width:14px;height:14px;left:3px;top:3px;
+    content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;
     background:#fff;border-radius:50%;transition:.2s;
   }
   .switch input:checked + .slider{background:var(--water);}
-  .switch input:checked + .slider:before{transform:translateX(16px);}
+  .switch input:checked + .slider:before{transform:translateX(20px);}
 
   .btnRow{display:flex;gap:10px;}
   .btnRow button{
@@ -156,6 +164,7 @@
   <header>
     <h1>健康提醒</h1>
     <p>分頁保持開啟,提醒才會運作。可釘選分頁避免誤關。</p>
+    <span id="notiState"></span>
   </header>
 
   <div id="permBanner">
@@ -354,16 +363,29 @@ function askPermission(){
   Notification.requestPermission().then(updatePermBanner);
 }
 function updatePermBanner(){
-  const b = $("permBanner");
-  if(!("Notification" in window)){ b.style.display = "none"; return; }
-  if(Notification.permission === "granted"){ b.style.display = "none"; return; }
-  b.style.display = "block";
-  if(Notification.permission === "denied"){
-    b.innerHTML = "桌面通知已被封鎖,縮小視窗時會收不到提醒。<br>請點網址列左邊的鎖頭圖示 → 通知 → 改為「允許」,然後重新整理頁面。";
+  const b = $("permBanner"), st = $("notiState");
+  let text = "", cls = "bad", banner = "";
+  if(!("Notification" in window)){
+    text = "❌ 此環境不支援桌面通知";
+    banner = "這個開啟方式不支援桌面通知(例如預覽視窗)。請上傳到 GitHub Pages,用 https 網址開啟。";
+  }else if(location.protocol === "file:"){
+    text = "❌ 本機檔案無法使用桌面通知";
+    banner = "直接雙擊檔案開啟時,瀏覽器不允許桌面通知,縮小視窗會收不到提醒。<br>請上傳到 GitHub Pages,用 https 網址開啟後再允許通知。";
+  }else if(Notification.permission === "granted"){
+    text = "✅ 桌面通知已允許"; cls = "ok";
+  }else if(Notification.permission === "denied"){
+    text = "❌ 桌面通知被封鎖";
+    banner = "桌面通知已被封鎖,縮小視窗時會收不到提醒。<br>請點網址列左邊的鎖頭圖示 → 通知 → 改為「允許」,然後重新整理頁面。";
   }else{
-    b.innerHTML = '尚未開啟桌面通知,縮小視窗時會收不到提醒。<br><button onclick="askPermission()">開啟桌面通知</button>';
+    text = "⚠ 桌面通知尚未允許";
+    banner = '尚未開啟桌面通知,縮小視窗時會收不到提醒。<br><button onclick="askPermission()">開啟桌面通知</button>';
   }
+  st.textContent = text;
+  st.className = cls;
+  if(banner){ b.innerHTML = banner; b.style.display = "block"; }
+  else b.style.display = "none";
 }
+setInterval(updatePermBanner, 5000);
 /* 共用 AudioContext:靠使用者點擊解鎖,背景時也能發聲 */
 let audioCtx = null;
 document.addEventListener("click", ()=>{
