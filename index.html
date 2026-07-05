@@ -110,6 +110,10 @@
   .setRow input[type=time]{
     padding:5px 6px;border:1px solid var(--line);border-radius:6px;font-size:14px;
   }
+  .setRow select{
+    padding:6px 4px;border:1px solid var(--line);border-radius:6px;font-size:14px;
+    background:#fff;color:var(--ink);
+  }
   .setRow .unit{color:var(--ink-soft);font-size:13px;}
   .switch{position:relative;display:inline-block;width:44px;height:24px;flex:none;}
   .switch input{opacity:0;width:0;height:0;}
@@ -154,6 +158,13 @@
   #modalBtns button.main{background:var(--water);color:#fff;}
   #modalBtns button.warm{background:var(--stand);color:#fff;}
   #modalBtns button.ghost{background:#EDF3F4;color:var(--ink);}
+  #toast{
+    position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);
+    background:var(--ink);color:#fff;padding:10px 20px;border-radius:20px;
+    font-size:14px;font-weight:700;opacity:0;pointer-events:none;
+    transition:.25s;z-index:98;white-space:nowrap;
+  }
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   @media (max-width:420px){
     .timers{grid-template-columns:1fr;}
   }
@@ -235,7 +246,7 @@
     </div>
     <div class="setRow">
       <label>提醒時段</label>
-      <span><input type="time" id="workStart" value="10:00"> ~ <input type="time" id="workEnd" value="19:00"></span>
+      <span><select id="workStart"></select> ~ <select id="workEnd"></select></span>
     </div>
     <div class="setRow">
       <label>午休不提醒</label>
@@ -243,7 +254,7 @@
     </div>
     <div class="setRow">
       <label>午休時段</label>
-      <span><input type="time" id="lunchStart" value="12:00"> ~ <input type="time" id="lunchEnd" value="13:00"></span>
+      <span><select id="lunchStart"></select> ~ <select id="lunchEnd"></select></span>
     </div>
     <div class="setRow">
       <label>提示音</label>
@@ -271,6 +282,7 @@
     <div id="modalBtns"></div>
   </div>
 </div>
+<div id="toast"></div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -285,8 +297,17 @@ function loadSettings(){
   SETTING_KEYS.forEach(k=>{
     const el = $(k);
     if(s[k] === undefined) return;
-    if(el.type === "checkbox") el.checked = s[k];
-    else el.value = s[k];
+    if(el.type === "checkbox"){ el.checked = s[k]; return; }
+    el.value = s[k];
+    if(el.tagName === "SELECT" && el.value !== s[k]){
+      /* 舊時間值不在 30 分鐘刻度上,就近對齊 */
+      const parts = String(s[k]).split(":").map(Number);
+      if(parts.length === 2 && !isNaN(parts[0])){
+        let total = Math.round((parts[0]*60 + parts[1]) / 30) * 30;
+        if(total >= 1440) total = 1410;
+        el.value = String(Math.floor(total/60)).padStart(2,"0") + ":" + String(total%60).padStart(2,"0");
+      }
+    }
   });
 }
 function saveSettings(){
@@ -297,16 +318,31 @@ function saveSettings(){
   });
   localStorage.setItem("healthReminderSettings", JSON.stringify(s));
 }
+function onSettingChanged(k){
+  saveSettings();
+  const affectBoth = ["workStart","workEnd","lunchOn","lunchStart","lunchEnd"].includes(k);
+  if(k === "waterMin" || affectBoth) nextWater = Date.now() + mins($("waterMin").value);
+  if(k === "standMin" || affectBoth) nextStand = Date.now() + mins($("standMin").value);
+  if(affectBoth || k === "waterMin" || k === "standMin") toast("已套用,重新計時");
+  else toast("設定已儲存");
+  render();
+}
 SETTING_KEYS.forEach(k=>{
-  $(k).addEventListener("change", ()=>{
-    saveSettings();
-    const affectBoth = ["workStart","workEnd","lunchOn","lunchStart","lunchEnd"].includes(k);
-    if(k === "waterMin" || affectBoth) nextWater = Date.now() + mins($("waterMin").value);
-    if(k === "standMin" || affectBoth) nextStand = Date.now() + mins($("standMin").value);
-    render();
-  });
+  const el = $(k);
+  el.addEventListener("change", ()=>onSettingChanged(k));
+  el.addEventListener("input", ()=>onSettingChanged(k));
 });
 function mins(v){ return Math.max(1, parseInt(v)||60) * 60 * 1000; }
+
+/* ---------- 提示 toast ---------- */
+let toastTimer = null;
+function toast(msg){
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove("show"), 2000);
+}
 
 /* ---------- 今日紀錄 ---------- */
 function todayKey(){
@@ -568,6 +604,23 @@ function togglePause(){
 }
 
 /* ---------- 啟動 ---------- */
+/* 產生 24 小時制時間選項(每 30 分鐘一格) */
+function fillTimeSelect(id, def){
+  const el = $(id);
+  for(let h=0; h<24; h++){
+    for(const m of ["00","30"]){
+      const v = String(h).padStart(2,"0") + ":" + m;
+      const o = document.createElement("option");
+      o.value = v; o.textContent = v;
+      el.appendChild(o);
+    }
+  }
+  el.value = def;
+}
+fillTimeSelect("workStart","10:00");
+fillTimeSelect("workEnd","19:00");
+fillTimeSelect("lunchStart","12:00");
+fillTimeSelect("lunchEnd","13:00");
 loadSettings();
 saveSettings();  /* 完成設定版本遷移 */
 updatePermBanner();
