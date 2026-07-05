@@ -103,18 +103,18 @@
     padding:5px 6px;border:1px solid var(--line);border-radius:6px;font-size:14px;
   }
   .setRow .unit{color:var(--ink-soft);font-size:13px;}
-  .switch{position:relative;display:inline-block;width:44px;height:24px;flex:none;}
+  .switch{position:relative;display:inline-block;width:36px;height:20px;flex:none;}
   .switch input{opacity:0;width:0;height:0;}
   .slider{
-    position:absolute;inset:0;background:#C4D4D8;border-radius:24px;
+    position:absolute;inset:0;background:#C4D4D8;border-radius:20px;
     cursor:pointer;transition:.2s;
   }
   .slider:before{
-    content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;
+    content:"";position:absolute;width:14px;height:14px;left:3px;top:3px;
     background:#fff;border-radius:50%;transition:.2s;
   }
   .switch input:checked + .slider{background:var(--water);}
-  .switch input:checked + .slider:before{transform:translateX(20px);}
+  .switch input:checked + .slider:before{transform:translateX(16px);}
 
   .btnRow{display:flex;gap:10px;}
   .btnRow button{
@@ -291,8 +291,9 @@ function saveSettings(){
 SETTING_KEYS.forEach(k=>{
   $(k).addEventListener("change", ()=>{
     saveSettings();
-    if(k==="waterMin") nextWater = Date.now() + mins($("waterMin").value);
-    if(k==="standMin") nextStand = Date.now() + mins($("standMin").value);
+    const affectBoth = ["workStart","workEnd","lunchOn","lunchStart","lunchEnd"].includes(k);
+    if(k === "waterMin" || affectBoth) nextWater = Date.now() + mins($("waterMin").value);
+    if(k === "standMin" || affectBoth) nextStand = Date.now() + mins($("standMin").value);
     render();
   });
 });
@@ -446,9 +447,17 @@ function testNotify(){
 }
 
 /* ---------- 主迴圈 ---------- */
+let wasWorking = false;
 function tick(){
   const now = Date.now();
-  if(!paused && inWorkTime()){
+  const working = !paused && inWorkTime();
+  if(working && !wasWorking){
+    /* 剛進入提醒時段(含午休結束):重新起算 */
+    nextWater = now + mins($("waterMin").value);
+    nextStand = now + mins($("standMin").value);
+  }
+  wasWorking = working;
+  if(working){
     if($("waterOn").checked && now >= nextWater){
       notify("該喝水了 💧", "今日已喝 " + getMl() + " ml", "water");
       waterModal();
@@ -471,6 +480,11 @@ function fmtClock(t){
   const d = new Date(t);
   return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
 }
+function afterEnd(t){
+  const d = new Date(t), today = new Date();
+  if(d.getDate() !== today.getDate()) return true;
+  return (d.getHours()*60 + d.getMinutes()) >= hmToMin($("workEnd").value);
+}
 function render(){
   const ml = getMl(), goal = Math.max(100, parseInt($("goalMl").value)||2000);
   $("mlNum").textContent = ml;
@@ -491,8 +505,10 @@ function render(){
 
   $("waterCount").textContent = working && $("waterOn").checked ? fmtCountdown(nextWater) : "--:--";
   $("standCount").textContent = working && $("standOn").checked ? fmtCountdown(nextStand) : "--:--";
-  $("waterNext").textContent = working && $("waterOn").checked ? ("預計 " + fmtClock(nextWater)) : stateText;
-  $("standNext").textContent = working && $("standOn").checked ? ("預計 " + fmtClock(nextStand)) : stateText;
+  $("waterNext").textContent = working && $("waterOn").checked
+    ? (afterEnd(nextWater) ? "⚠ 超過今日時段,不會提醒" : "預計 " + fmtClock(nextWater)) : stateText;
+  $("standNext").textContent = working && $("standOn").checked
+    ? (afterEnd(nextStand) ? "⚠ 超過今日時段,不會提醒" : "預計 " + fmtClock(nextStand)) : stateText;
 
   if($("modalWrap").classList.contains("show")){
     document.title = "🔔 有提醒!點回來看";
