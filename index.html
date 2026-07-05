@@ -437,23 +437,37 @@ function standModal(){
   ]);
 }
 
+let lastNotifyError = "";
 function notify(title, body, tag){
   beep();
   if(("Notification" in window) && Notification.permission === "granted"){
     try{
       const n = new Notification(title, {body:body, tag:tag, renotify:true, requireInteraction:true});
       n.onclick = ()=>{ window.focus(); n.close(); };
-    }catch(e){}
+      return n;
+    }catch(e){ lastNotifyError = e.message; }
   }
+  return null;
 }
 function testNotify(){
-  const send = ()=>notify("測試通知 ✅", "縮小視窗時就是靠這個提醒你", "test");
+  const send = ()=>{
+    const n = notify("測試通知 ✅", "縮小視窗時就是靠這個提醒你", "test");
+    if(!n){
+      $("modalBody").textContent = "❌ 通知建立失敗:" + (lastNotifyError || "未知原因");
+      return;
+    }
+    n.onshow = ()=>{
+      $("modalBody").textContent = "✅ Chrome 回報:通知已送出並顯示。如果右下角還是沒看到,問題在 Windows 顯示層(見下方建議)。";
+    };
+    n.onerror = ()=>{
+      $("modalBody").textContent = "❌ Chrome 回報:通知顯示失敗。Chrome 與 Windows 通知系統的連結可能損壞,請先完全重啟 Chrome 再試。";
+    };
+  };
   let stateMsg;
   if(!("Notification" in window)){
     stateMsg = "此瀏覽器不支援桌面通知,縮小視窗時無法提醒";
   }else if(Notification.permission === "granted"){
-    send();
-    stateMsg = "桌面通知已允許,右下角應該同時跳出一則通知";
+    stateMsg = "已發送測試通知,等待 Chrome 回報結果…";
   }else if(Notification.permission === "denied"){
     stateMsg = "桌面通知被封鎖了!請點網址列的鎖頭圖示 → 通知 → 允許,再重新整理";
   }else{
@@ -466,6 +480,7 @@ function testNotify(){
   showModal("✅","測試彈窗", stateMsg, [
     {text:"知道了", cls:"main", fn:closeModal}
   ]);
+  if(("Notification" in window) && Notification.permission === "granted") send();
 }
 
 /* ---------- 主迴圈 ---------- */
