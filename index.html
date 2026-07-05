@@ -260,6 +260,10 @@
       <label>提示音</label>
       <label class="switch"><input type="checkbox" id="soundOn" checked><span class="slider"></span></label>
     </div>
+    <div class="setRow">
+      <label>彈出獨立提醒視窗(縮小視窗也看得到)</label>
+      <label class="switch"><input type="checkbox" id="popupOn" checked><span class="slider"></span></label>
+    </div>
   </details>
 
   <div class="btnRow">
@@ -286,7 +290,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const SETTING_KEYS = ["waterOn","waterMin","goalMl","sipMl","bottleMl","standOn","standMin","workStart","workEnd","lunchOn","lunchStart","lunchEnd","soundOn"];
+const SETTING_KEYS = ["waterOn","waterMin","goalMl","sipMl","bottleMl","standOn","standMin","workStart","workEnd","lunchOn","lunchStart","lunchEnd","soundOn","popupOn"];
 let nextWater = 0, nextStand = 0, paused = false;
 
 /* ---------- 設定存取 ---------- */
@@ -518,7 +522,53 @@ function testNotify(){
   showModal("✅","測試彈窗", stateMsg, [
     {text:"知道了", cls:"main", fn:closeModal}
   ]);
+  popupReminder("test");
   if(("Notification" in window) && Notification.permission === "granted") send();
+}
+
+/* ---------- 獨立彈出提醒視窗(不依賴系統通知) ---------- */
+function popupReminder(type){
+  if(!$("popupOn").checked) return;
+  try{
+    const wpx = 360, hpx = 320;
+    const left = Math.max(0, (screen.availWidth||1000) - wpx - 24);
+    const top = Math.max(0, (screen.availHeight||700) - hpx - 60);
+    const p = window.open("", "hb_reminder",
+      "width=" + wpx + ",height=" + hpx + ",left=" + left + ",top=" + top + ",popup=yes");
+    if(!p){
+      toast("彈出視窗被封鎖!點網址列右側圖示 → 一律允許");
+      return;
+    }
+    let icon, title, body, btns;
+    if(type === "water"){
+      icon = "💧"; title = "該喝水了"; body = "今日已喝 " + getMl() + " ml";
+      btns = '<button style="background:#0E7490" onclick="opener.addWater(1);window.close()">一口 +' + sipAmt() + 'ml</button>'
+           + '<button style="background:#0E7490" onclick="opener.addWater(2);window.close()">兩口 +' + (sipAmt()*2) + 'ml</button>'
+           + '<button style="background:#0E7490" onclick="opener.addBottle(0.5);window.close()">半壺 +' + Math.round(bottleAmt()/2) + 'ml</button>'
+           + '<button style="background:#8DA6AB" onclick="opener.snoozeWater();window.close()">稍後 10 分</button>';
+    }else if(type === "stand"){
+      icon = "🧍"; title = "該站起來了"; body = "離開座位活動 2~3 分鐘";
+      btns = '<button style="background:#C2731A" onclick="opener.markStand();window.close()">我站過了</button>'
+           + '<button style="background:#8DA6AB" onclick="opener.snoozeStand();window.close()">稍後 10 分</button>';
+    }else{
+      icon = "✅"; title = "測試彈出視窗"; body = "提醒時間到就會像這樣跳出來";
+      btns = '<button style="background:#0E7490" onclick="window.close()">關閉</button>';
+    }
+    p.document.write(
+      '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>健康提醒</title>'
+      + '<style>body{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;background:#F0F7F8;'
+      + 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;}'
+      + '.ic{font-size:48px;}h2{margin:8px 0 4px;color:#0F3B42;font-size:20px;}'
+      + 'p{margin:0 0 14px;color:#5B7E85;font-size:14px;}'
+      + '.bs{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:0 14px;}'
+      + '.bs button{border:none;border-radius:10px;padding:11px 14px;font-size:15px;font-weight:700;'
+      + 'color:#fff;cursor:pointer;min-width:100px;}</style></head><body>'
+      + '<div class="ic">' + icon + '</div><h2>' + title + '</h2><p>' + body + '</p>'
+      + '<div class="bs">' + btns + '</div></body></html>'
+    );
+    p.document.close();
+    p.focus();
+  }catch(e){}
 }
 
 /* ---------- 主迴圈 ---------- */
@@ -536,11 +586,13 @@ function tick(){
     if($("waterOn").checked && now >= nextWater){
       notify("該喝水了 💧", "今日已喝 " + getMl() + " ml", "water");
       waterModal();
+      popupReminder("water");
       nextWater = now + mins($("waterMin").value);
     }
     if($("standOn").checked && now >= nextStand){
       notify("該站起來了 🧍", "離開座位活動 2~3 分鐘", "stand");
       standModal();
+      popupReminder("stand");
       nextStand = now + mins($("standMin").value);
     }
   }
