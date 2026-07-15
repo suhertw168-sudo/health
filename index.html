@@ -264,6 +264,10 @@
       <label>彈出獨立提醒視窗(縮小視窗也看得到)</label>
       <label class="switch"><input type="checkbox" id="popupOn" checked><span class="slider"></span></label>
     </div>
+    <div class="setRow">
+      <label>桌面浮動時鐘(含秒數,置頂可拖曳)</label>
+      <label class="switch"><input type="checkbox" id="clockOn"><span class="slider"></span></label>
+    </div>
   </details>
 
   <div class="btnRow">
@@ -570,6 +574,73 @@ function popupReminder(type){
     p.focus();
   }catch(e){}
 }
+
+/* ---------- 桌面浮動時鐘(置頂、可拖曳、含秒數) ---------- */
+let clockWin = null, clockTimer = null;
+function stopClock(){
+  clearInterval(clockTimer); clockTimer = null;
+  if(clockWin){ try{ clockWin.close(); }catch(e){} clockWin = null; }
+}
+function clockClosedByUser(){
+  clearInterval(clockTimer); clockTimer = null; clockWin = null;
+  $("clockOn").checked = false;
+}
+function startClockLoop(el){
+  const pad = v => String(v).padStart(2,"0");
+  const upd = ()=>{
+    const n = new Date();
+    el.textContent = pad(n.getHours()) + ":" + pad(n.getMinutes()) + ":" + pad(n.getSeconds());
+  };
+  upd();
+  clockTimer = setInterval(upd, 250);
+}
+async function toggleClock(on){
+  if(!on){ stopClock(); return; }
+  /* 優先:文件子母畫面(永遠置頂,可拖曳到螢幕任意位置) */
+  if("documentPictureInPicture" in window){
+    try{
+      clockWin = await documentPictureInPicture.requestWindow({ width: 210, height: 48 });
+      const doc = clockWin.document;
+      doc.body.style.cssText = "margin:0;height:100vh;display:flex;align-items:center;justify-content:center;"
+        + "background:#0F3B42;user-select:none;overflow:hidden;";
+      const ck = doc.createElement("div");
+      ck.style.cssText = "font-family:Consolas,'Courier New',monospace;font-weight:700;"
+        + "font-size:26px;color:#fff;letter-spacing:3px;";
+      doc.body.appendChild(ck);
+      startClockLoop(ck);
+      clockWin.addEventListener("pagehide", clockClosedByUser);
+      toast("時鐘已置頂,可直接拖曳到左下角");
+      return;
+    }catch(e){ /* 失敗則改用一般小視窗 */ }
+  }
+  /* 退路:一般小視窗(可拖曳,但可能被其他視窗蓋住) */
+  try{
+    const top = Math.max(0, (screen.availHeight||700) - 140);
+    const p = window.open("", "hb_clock", "width=210,height=60,left=8,top=" + top + ",popup=yes");
+    if(!p){
+      toast("彈出視窗被封鎖!點網址列右側圖示 → 一律允許");
+      $("clockOn").checked = false;
+      return;
+    }
+    p.document.write(
+      '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>時鐘</title></head>'
+      + '<body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;'
+      + 'background:#0F3B42;user-select:none;overflow:hidden;">'
+      + '<div id="ck" style="font-family:Consolas,monospace;font-weight:700;font-size:26px;'
+      + 'color:#fff;letter-spacing:3px;"></div></body></html>'
+    );
+    p.document.close();
+    clockWin = p;
+    startClockLoop(p.document.getElementById("ck"));
+    const watch = setInterval(()=>{
+      if(!clockWin || clockWin.closed){ clearInterval(watch); clockClosedByUser(); }
+    }, 1000);
+    toast("此瀏覽器不支援置頂,時鐘視窗可能被蓋住");
+  }catch(e){
+    $("clockOn").checked = false;
+  }
+}
+$("clockOn").addEventListener("change", e => toggleClock(e.target.checked));
 
 /* ---------- 主迴圈 ---------- */
 let wasWorking = false;
