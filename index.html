@@ -84,6 +84,8 @@
     border-radius:8px;padding:7px 10px;font-size:13px;font-weight:700;cursor:pointer;
   }
   .quickRow button:active{background:var(--water);color:#fff;}
+  .quickRow button.undo{background:#EDF3F4;color:var(--ink);border-color:var(--line);}
+  .quickRow button:disabled{opacity:.4;cursor:not-allowed;}
   #pauseBtn{
     background:var(--ink);color:#fff;border:none;border-radius:8px;
     padding:10px 18px;font-size:14px;cursor:pointer;white-space:nowrap;
@@ -91,6 +93,33 @@
   #pauseBtn.paused{background:var(--ok);}
 
   /* 設定 */
+  /* 近 7 天紀錄 */
+  .hist{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:16px;}
+  .histHead{font-size:15px;font-weight:700;display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;}
+  .histHead span{font-size:12px;color:var(--ink-soft);font-weight:400;}
+  .chart{display:flex;align-items:flex-end;gap:8px;height:112px;margin-top:10px;position:relative;}
+  .chart .goalLine{position:absolute;left:0;right:0;border-top:1px dashed var(--stand);pointer-events:none;}
+  .chart .goalLine span{position:absolute;right:0;top:-15px;font-size:10px;color:var(--stand);}
+  .chart .col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;}
+  .chart .val{font-size:10px;color:var(--ink-soft);margin-bottom:2px;}
+  .chart .bar2{width:100%;max-width:34px;background:#B9DDE6;border-radius:5px 5px 0 0;}
+  .chart .bar2.hit{background:var(--water);}
+  .chart .day{font-size:11px;color:var(--ink-soft);height:16px;line-height:16px;margin-top:4px;}
+  .chart .col.today .day{color:var(--ink);font-weight:700;}
+  .hist details.log{border:none;padding:0;margin:12px 0 0;background:none;border-radius:0;}
+  .hist details.log summary{font-size:14px;}
+  #logList{max-height:180px;overflow-y:auto;margin-top:6px;}
+  .logItem{display:flex;justify-content:space-between;font-size:13px;padding:5px 2px;border-bottom:1px dashed var(--line);}
+  .logItem b{color:var(--water);}
+  .logEmpty{font-size:13px;color:var(--ink-soft);padding:6px 2px;}
+  .bar .fill.done{background:var(--ok);}
+  /* 星期選擇 */
+  .days{display:flex;gap:4px;flex-wrap:wrap;}
+  .setRow .days label{flex:none;position:relative;}
+  .days input{position:absolute;opacity:0;width:0;height:0;}
+  .days span{display:inline-block;width:28px;height:28px;line-height:28px;text-align:center;border-radius:50%;
+    background:#EDF3F4;color:var(--ink-soft);font-size:13px;cursor:pointer;user-select:none;}
+  .days input:checked + span{background:var(--water);color:#fff;font-weight:700;}
   details{
     background:var(--card);border:1px solid var(--line);border-radius:14px;
     padding:14px 16px;margin-bottom:16px;
@@ -209,9 +238,19 @@
         <button onclick="addWater(2)" id="qSip2">+兩口</button>
         <button onclick="addBottle(0.5)" id="qHalf">+半壺</button>
         <button onclick="addBottle(1)" id="qFull">+一壺</button>
+        <button onclick="undoWater()" id="qUndo" class="undo">↩ 復原</button>
       </div>
     </div>
     <button id="pauseBtn" onclick="togglePause()">暫停提醒</button>
+  </div>
+
+  <div class="hist">
+    <div class="histHead">近 7 天喝水 <span id="histAvg"></span></div>
+    <div class="chart" id="chart"></div>
+    <details class="log">
+      <summary id="logSum">今日明細</summary>
+      <div id="logList"></div>
+    </details>
   </div>
 
   <details>
@@ -229,6 +268,10 @@
       <input type="number" id="goalMl" min="500" max="5000" step="100" value="2000"><span class="unit">ml</span>
     </div>
     <div class="setRow">
+      <label>達標後放寬喝水提醒(間隔加倍)</label>
+      <label class="switch"><input type="checkbox" id="relaxOn"><span class="slider"></span></label>
+    </div>
+    <div class="setRow">
       <label>一口約</label>
       <input type="number" id="sipMl" min="10" max="100" step="5" value="30"><span class="unit">ml</span>
     </div>
@@ -243,6 +286,18 @@
     <div class="setRow">
       <label>站立間隔</label>
       <input type="number" id="standMin" min="10" max="240" value="50"><span class="unit">分鐘</span>
+    </div>
+    <div class="setRow">
+      <label>提醒星期</label>
+      <span class="days">
+        <label><input type="checkbox" id="day1" checked><span>一</span></label>
+        <label><input type="checkbox" id="day2" checked><span>二</span></label>
+        <label><input type="checkbox" id="day3" checked><span>三</span></label>
+        <label><input type="checkbox" id="day4" checked><span>四</span></label>
+        <label><input type="checkbox" id="day5" checked><span>五</span></label>
+        <label><input type="checkbox" id="day6"><span>六</span></label>
+        <label><input type="checkbox" id="day0"><span>日</span></label>
+      </span>
     </div>
     <div class="setRow">
       <label>提醒時段</label>
@@ -276,9 +331,9 @@
   </div>
 
   <p class="note">
-    說明:提醒只在「提醒時段」內出現,午休自動跳過。電腦休眠或分頁關閉時不會提醒。
-    時間到會跳出對話框(按掉才消失)並同時發桌面通知。按任何加水按鈕都會記錄 ml 並重新計時;
-    「稍後 10 分」會延後這一輪。設定與今日紀錄都存在這台電腦的瀏覽器裡。
+    說明:提醒只在勾選的星期與「提醒時段」內出現,午休自動跳過。電腦休眠或分頁關閉時不會提醒。
+    開著置頂時鐘時,提醒會直接顯示在時鐘上。按任何加水按鈕都會記錄 ml 並重新計時;
+    「稍後 10 分」會延後這一輪。設定與紀錄都存在這台電腦的瀏覽器裡(保留約 60 天)。
   </p>
 </div>
 
@@ -294,7 +349,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const SETTING_KEYS = ["waterOn","waterMin","goalMl","sipMl","bottleMl","standOn","standMin","workStart","workEnd","lunchOn","lunchStart","lunchEnd","soundOn","popupOn"];
+const SETTING_KEYS = ["waterOn","waterMin","goalMl","sipMl","bottleMl","standOn","standMin","workStart","workEnd","lunchOn","lunchStart","lunchEnd","soundOn","popupOn","relaxOn","day0","day1","day2","day3","day4","day5","day6"];
 let nextWater = 0, nextStand = 0, paused = false;
 
 /* ---------- 設定存取 ---------- */
@@ -328,9 +383,9 @@ function saveSettings(){
 }
 function onSettingChanged(k){
   saveSettings();
-  const affectBoth = ["workStart","workEnd","lunchOn","lunchStart","lunchEnd"].includes(k);
-  if(k === "waterMin" || affectBoth) nextWater = Date.now() + mins($("waterMin").value);
-  if(k === "standMin" || affectBoth) nextStand = Date.now() + mins($("standMin").value);
+  const affectBoth = ["workStart","workEnd","lunchOn","lunchStart","lunchEnd"].includes(k) || k.startsWith("day");
+  if(k === "waterMin" || affectBoth) schedule("water");
+  if(k === "standMin" || affectBoth) schedule("stand");
   if(affectBoth || k === "waterMin" || k === "standMin") toast("已套用,重新計時");
   else toast("設定已儲存");
   render();
@@ -344,52 +399,128 @@ function mins(v){ return Math.max(1, parseInt(v)||60) * 60 * 1000; }
 
 /* ---------- 提示 toast ---------- */
 let toastTimer = null;
-function toast(msg){
+function toast(msg, dur){
   const t = $("toast");
   t.textContent = msg;
   t.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(()=>t.classList.remove("show"), 2000);
+  toastTimer = setTimeout(()=>t.classList.remove("show"), dur || 2000);
 }
 
-/* ---------- 今日紀錄 ---------- */
+/* ---------- 今日紀錄(含明細,可復原) ---------- */
 function todayKey(){
   const d = new Date();
   return d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
 }
-function getMl(){
+function getRec(){
   try{
     const r = JSON.parse(localStorage.getItem("healthReminderMl")||"{}");
-    return r.date === todayKey() ? (r.ml||0) : 0;
-  }catch(e){ return 0; }
+    if(r.date === todayKey()) return {date:r.date, ml:r.ml||0, log:r.log||[]};
+  }catch(e){}
+  return {date:todayKey(), ml:0, log:[]};
 }
-function setMl(n){
-  localStorage.setItem("healthReminderMl", JSON.stringify({date:todayKey(), ml:n}));
+const HIST_KEY = "healthReminderHistory";
+function dayKey(d){ return d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate(); }
+function keyTs(k){ const p = k.split("-").map(Number); return new Date(p[0], p[1]-1, p[2]).getTime(); }
+function getHist(){ try{ return JSON.parse(localStorage.getItem(HIST_KEY)||"{}") || {}; }catch(e){ return {}; } }
+function saveRec(r){
+  localStorage.setItem("healthReminderMl", JSON.stringify(r));
+  const hs = getHist();
+  hs[r.date] = r.ml;
+  const keys = Object.keys(hs).sort((a,b)=>keyTs(a)-keyTs(b));
+  while(keys.length > 60) delete hs[keys.shift()];
+  localStorage.setItem(HIST_KEY, JSON.stringify(hs));
 }
+function migrateHistory(){
+  /* 把舊版存下、非今天的那一天補進歷史 */
+  try{
+    const r = JSON.parse(localStorage.getItem("healthReminderMl")||"{}");
+    if(r.date && r.date !== todayKey() && r.ml){
+      const hs = getHist();
+      if(hs[r.date] === undefined){ hs[r.date] = r.ml; localStorage.setItem(HIST_KEY, JSON.stringify(hs)); }
+    }
+  }catch(e){}
+}
+function goalAmt(){ return Math.max(100, parseInt($("goalMl").value)||2000); }
+let celebrateUntil = 0;
+function celebrate(){
+  celebrateUntil = Date.now() + 15000;  /* 時鐘上兩隻貓一起跳 15 秒 */
+  toast("🎉 今日喝水目標達成!", 4000);
+}
+function getMl(){ return getRec().ml; }
 function sipAmt(){ return Math.max(5, parseInt($("sipMl").value)||30); }
 function bottleAmt(){ return Math.max(50, parseInt($("bottleMl").value)||400); }
 function addWaterMl(ml){
-  setMl(getMl()+ml);
-  nextWater = Date.now() + mins($("waterMin").value);
-  closeModal();
+  const r = getRec();
+  const before = r.ml;
+  r.ml += ml;
+  r.log.push({t:Date.now(), ml:ml});
+  if(r.log.length > 200) r.log.shift();
+  saveRec(r);
+  schedule("water");
+  dismissReminder("water");
+  if(before < goalAmt() && r.ml >= goalAmt()) celebrate();
+  else toast("+" + ml + " ml,今日共 " + r.ml + " ml");
   render();
 }
 function addWater(sips){ addWaterMl(sips * sipAmt()); }
 function addBottle(f){ addWaterMl(Math.round(f * bottleAmt())); }
-function markStand(){
-  nextStand = Date.now() + mins($("standMin").value);
-  closeModal();
+function undoWater(){
+  const r = getRec();
+  const last = r.log.pop();
+  if(!last){ toast("沒有可以復原的紀錄"); return; }
+  r.ml = Math.max(0, r.ml - last.ml);
+  saveRec(r);
+  toast("已復原 " + fmtClock(last.t) + " 的 +" + last.ml + " ml");
   render();
 }
-function snoozeWater(){ nextWater = Date.now() + 10*60*1000; closeModal(); render(); }
-function snoozeStand(){ nextStand = Date.now() + 10*60*1000; closeModal(); render(); }
+function markStand(){ schedule("stand"); dismissReminder("stand"); render(); }
+function snoozeWater(){ schedule("water", 10); dismissReminder("water"); render(); }
+function snoozeStand(){ schedule("stand", 10); dismissReminder("stand"); render(); }
 function resetToday(){
-  if(confirm("確定重設今日喝水紀錄?")){ setMl(0); render(); }
+  if(confirm("確定重設今日喝水紀錄?")){ saveRec({date:todayKey(), ml:0, log:[]}); render(); }
+}
+
+/* ---------- 排程狀態(存檔:重新整理或關掉再開,倒數會接續) ---------- */
+const STATE_KEY = "healthReminderState";
+function saveState(){
+  try{ localStorage.setItem(STATE_KEY, JSON.stringify({nextWater:nextWater, nextStand:nextStand, paused:paused})); }catch(e){}
+}
+function schedule(type, minutes){
+  let ms = minutes ? minutes*60000 : mins($(type === "water" ? "waterMin" : "standMin").value);
+  if(!minutes && type === "water" && relaxed()) ms *= 2;
+  if(type === "water") nextWater = Date.now() + ms;
+  else nextStand = Date.now() + ms;
+  saveState();
+}
+function relaxed(){ return $("relaxOn").checked && getMl() >= goalAmt(); }
+function restoreState(){
+  let s = null;
+  try{ s = JSON.parse(localStorage.getItem(STATE_KEY)||"null"); }catch(e){}
+  const now = Date.now();
+  /* 過期 10 分鐘內的照樣補提醒;關掉太久就重新起算 */
+  const ok = t => typeof t === "number" && t > now - 10*60000 && t < now + 24*3600000;
+  paused = !!(s && s.paused);
+  if(s && ok(s.nextWater)) nextWater = s.nextWater; else schedule("water");
+  if(s && ok(s.nextStand)) nextStand = s.nextStand; else schedule("stand");
+  saveState();
 }
 
 /* ---------- 時段判斷 ---------- */
 function hmToMin(hm){ const [h,m] = hm.split(":").map(Number); return h*60+m; }
+const WEEK = "日一二三四五六";
+function effDay(){
+  /* 跨日時段的凌晨那段,算前一天 */
+  const n = new Date();
+  const cur = n.getHours()*60 + n.getMinutes();
+  const ws = hmToMin($("workStart").value), we = hmToMin($("workEnd").value);
+  let d = n.getDay();
+  if(ws > we && cur < we) d = (d + 6) % 7;
+  return d;
+}
+function dayOk(){ return $("day" + effDay()).checked; }
 function inWorkTime(){
+  if(!dayOk()) return false;
   const now = new Date();
   const cur = now.getHours()*60 + now.getMinutes();
   const ws = hmToMin($("workStart").value), we = hmToMin($("workEnd").value);
@@ -451,41 +582,145 @@ function beep(){
     o.start(); o.stop(audioCtx.currentTime + 0.6);
   }catch(e){}
 }
-function showModal(icon, title, body, btns){
-  $("modalIcon").textContent = icon;
-  $("modalTitle").textContent = title;
-  $("modalBody").textContent = body;
+/* ---------- 統一提醒流程:一個提醒,多個顯示出口 ----------
+   出口:頁面彈窗、置頂時鐘(開著時優先)、獨立小視窗(時鐘沒開時)、系統通知 */
+let testMsg = "";
+function reminderDef(type){
+  if(type === "water") return {
+    icon:"💧", title:"該喝水了", body:"今日已喝 " + getMl() + " ml,補充一點吧", color:"#0E7490",
+    actions:[
+      {text:"一口", full:"一口 +"+sipAmt()+"ml", cls:"main", fn:()=>addWater(1)},
+      {text:"兩口", full:"兩口 +"+(sipAmt()*2)+"ml", cls:"main", fn:()=>addWater(2)},
+      {text:"半壺", full:"半壺 +"+Math.round(bottleAmt()/2)+"ml", cls:"main", fn:()=>addBottle(0.5)},
+      {text:"稍後", full:"稍後 10 分", cls:"ghost", fn:snoozeWater}
+    ]};
+  if(type === "stand") return {
+    icon:"🧍", title:"該站起來了", body:"離開座位活動 2~3 分鐘", color:"#C2731A",
+    actions:[
+      {text:"站過了", full:"我站過了", cls:"warm", fn:markStand},
+      {text:"稍後", full:"稍後 10 分", cls:"ghost", fn:snoozeStand}
+    ]};
+  return {
+    icon:"✅", title:"測試提醒", body:testMsg, color:"#15803D",
+    actions:[{text:"知道了", full:"知道了", cls:"main", fn:()=>dismissReminder("test")}]
+  };
+}
+let queue = [];  /* 同時到期的提醒排隊,一次顯示一則 */
+function fireReminder(type){
+  if(!queue.includes(type)) queue.push(type);
+  beep();
+  if(type !== "test"){
+    const d = reminderDef(type);
+    notify(d.icon + " " + d.title, d.body, type);
+  }
+  showCurrent();
+}
+function showCurrent(){
+  const type = queue[0];
+  if(!type){ hideAllOutputs(); render(); return; }
+  const def = reminderDef(type);
+  showModalOut(def);
+  if(clockAlertOut(def)) closePopupOut();
+  else popupOut(def);
+  render();
+}
+function dismissReminder(type){
+  queue = queue.filter(t => t !== type);
+  showCurrent();
+}
+function hideAllOutputs(){ closeModal(); clearClockAlert(); closePopupOut(); }
+
+/* 出口 1:頁面彈窗 */
+function showModalOut(def){
+  $("modalIcon").textContent = def.icon;
+  $("modalTitle").textContent = def.title;
+  $("modalBody").textContent = def.body;
   const wrap = $("modalBtns");
   wrap.innerHTML = "";
-  btns.forEach(b=>{
+  def.actions.forEach(a=>{
     const el = document.createElement("button");
-    el.textContent = b.text;
-    el.className = b.cls;
-    el.onclick = b.fn;
+    el.textContent = a.full;
+    el.className = a.cls;
+    el.onclick = a.fn;
     wrap.appendChild(el);
   });
   $("modalWrap").classList.add("show");
 }
 function closeModal(){ $("modalWrap").classList.remove("show"); }
 
-function waterModal(){
-  showModal("💧","該喝水了","今日已喝 " + getMl() + " ml,補充一點吧",[
-    {text:"一口 +"+sipAmt()+"ml", cls:"main", fn:()=>addWater(1)},
-    {text:"兩口 +"+(sipAmt()*2)+"ml", cls:"main", fn:()=>addWater(2)},
-    {text:"半壺 +"+Math.round(bottleAmt()/2)+"ml", cls:"main", fn:()=>addBottle(0.5)},
-    {text:"稍後 10 分", cls:"ghost", fn:snoozeWater}
-  ]);
+/* 出口 2:置頂時鐘 */
+function clockDoc(){
+  try{ return (clockWin && !clockWin.closed) ? clockWin.document : null; }catch(e){ return null; }
 }
-function standModal(){
-  showModal("🧍","該站起來了","離開座位活動 2~3 分鐘",[
-    {text:"我站過了", cls:"warm", fn:markStand},
-    {text:"稍後 10 分", cls:"ghost", fn:snoozeStand}
-  ]);
+function clockAlertOut(def){
+  const d = clockDoc(); if(!d) return false;
+  const al = d.getElementById("al"); if(!al) return false;
+  al.innerHTML = "";
+  al.style.background = def.color;
+  const ic = d.createElement("span");
+  ic.className = "ic"; ic.textContent = def.icon; ic.title = def.title;
+  al.appendChild(ic);
+  def.actions.forEach(a=>{
+    const b = d.createElement("button");
+    b.textContent = a.text; b.title = a.full;
+    if(a.cls === "ghost") b.className = "ghost";
+    b.onclick = ()=>a.fn();
+    al.appendChild(b);
+  });
+  al.classList.add("show");
+  return true;
+}
+function clearClockAlert(){
+  const d = clockDoc();
+  if(d){ const al = d.getElementById("al"); if(al) al.classList.remove("show"); }
 }
 
+/* 出口 3:獨立小視窗(時鐘沒開時才用) */
+let popupWin = null;
+function popupOut(def){
+  if(!$("popupOn").checked) return;
+  try{
+    const wpx = 360, hpx = 320;
+    const left = Math.max(0, (screen.availWidth||1000) - wpx - 24);
+    const top = Math.max(0, (screen.availHeight||700) - hpx - 60);
+    const p = window.open("", "hb_reminder",
+      "width=" + wpx + ",height=" + hpx + ",left=" + left + ",top=" + top + ",popup=yes");
+    if(!p){ toast("彈出視窗被封鎖!點網址列右側圖示 → 一律允許"); return; }
+    popupWin = p;
+    const d = p.document;
+    d.open();
+    d.write('<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>健康提醒</title>'
+      + '<style>body{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;background:#F0F7F8;'
+      + 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;}'
+      + '.ic{font-size:48px;}h2{margin:8px 0 4px;color:#0F3B42;font-size:20px;}'
+      + 'p{margin:0 0 14px;color:#5B7E85;font-size:14px;}'
+      + '.bs{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:0 14px;}'
+      + '.bs button{border:none;border-radius:10px;padding:11px 14px;font-size:15px;font-weight:700;'
+      + 'color:#fff;cursor:pointer;min-width:100px;}</style></head><body>'
+      + '<div class="ic" id="ic"></div><h2 id="tt"></h2><p id="bd"></p><div class="bs" id="bs"></div></body></html>');
+    d.close();
+    d.getElementById("ic").textContent = def.icon;
+    d.getElementById("tt").textContent = def.title;
+    d.getElementById("bd").textContent = def.body;
+    const bs = d.getElementById("bs");
+    def.actions.forEach(a=>{
+      const b = d.createElement("button");
+      b.textContent = a.full;
+      b.style.background = a.cls === "ghost" ? "#8DA6AB" : def.color;
+      b.onclick = ()=>a.fn();
+      bs.appendChild(b);
+    });
+    p.focus();
+  }catch(e){}
+}
+function closePopupOut(){
+  if(popupWin && !popupWin.closed){ try{ popupWin.close(); }catch(e){} }
+  popupWin = null;
+}
+
+/* 出口 4:系統通知 */
 let lastNotifyError = "";
 function notify(title, body, tag){
-  beep();
   if(("Notification" in window) && Notification.permission === "granted"){
     try{
       const n = new Notification(title, {body:body, tag:tag, renotify:true, requireInteraction:true});
@@ -498,81 +733,22 @@ function notify(title, body, tag){
 function testNotify(){
   const send = ()=>{
     const n = notify("測試通知 ✅", "縮小視窗時就是靠這個提醒你", "test");
-    if(!n){
-      $("modalBody").textContent = "❌ 通知建立失敗:" + (lastNotifyError || "未知原因");
-      return;
-    }
-    n.onshow = ()=>{
-      $("modalBody").textContent = "✅ Chrome 回報:通知已送出並顯示。如果右下角還是沒看到,問題在 Windows 顯示層(見下方建議)。";
-    };
-    n.onerror = ()=>{
-      $("modalBody").textContent = "❌ Chrome 回報:通知顯示失敗。Chrome 與 Windows 通知系統的連結可能損壞,請先完全重啟 Chrome 再試。";
-    };
+    if(!n){ $("modalBody").textContent = "❌ 系統通知建立失敗:" + (lastNotifyError || "未知原因"); return; }
+    n.onshow = ()=>{ $("modalBody").textContent = "✅ 系統通知已送出。有開置頂時鐘的話,時鐘也會變色顯示提醒。"; };
+    n.onerror = ()=>{ $("modalBody").textContent = "❌ 系統通知顯示失敗,不影響時鐘與小視窗提醒。"; };
   };
-  let stateMsg;
   if(!("Notification" in window)){
-    stateMsg = "此瀏覽器不支援桌面通知,縮小視窗時無法提醒";
+    testMsg = "此環境不支援系統通知,將使用時鐘與小視窗提醒";
   }else if(Notification.permission === "granted"){
-    stateMsg = "已發送測試通知,等待 Chrome 回報結果…";
+    testMsg = "已發送測試,等待回報…";
   }else if(Notification.permission === "denied"){
-    stateMsg = "桌面通知被封鎖了!請點網址列的鎖頭圖示 → 通知 → 允許,再重新整理";
+    testMsg = "系統通知被封鎖,將使用時鐘與小視窗提醒";
   }else{
-    stateMsg = "請在瀏覽器跳出的詢問視窗按「允許」,允許後會再發一則測試通知";
-    Notification.requestPermission().then(p=>{
-      updatePermBanner();
-      if(p === "granted") send();
-    });
+    testMsg = "請在瀏覽器詢問視窗按「允許」";
+    Notification.requestPermission().then(p=>{ updatePermBanner(); if(p === "granted") send(); });
   }
-  showModal("✅","測試彈窗", stateMsg, [
-    {text:"知道了", cls:"main", fn:closeModal}
-  ]);
-  popupReminder("test");
+  fireReminder("test");
   if(("Notification" in window) && Notification.permission === "granted") send();
-}
-
-/* ---------- 獨立彈出提醒視窗(不依賴系統通知) ---------- */
-function popupReminder(type){
-  if(!$("popupOn").checked) return;
-  try{
-    const wpx = 360, hpx = 320;
-    const left = Math.max(0, (screen.availWidth||1000) - wpx - 24);
-    const top = Math.max(0, (screen.availHeight||700) - hpx - 60);
-    const p = window.open("", "hb_reminder",
-      "width=" + wpx + ",height=" + hpx + ",left=" + left + ",top=" + top + ",popup=yes");
-    if(!p){
-      toast("彈出視窗被封鎖!點網址列右側圖示 → 一律允許");
-      return;
-    }
-    let icon, title, body, btns;
-    if(type === "water"){
-      icon = "💧"; title = "該喝水了"; body = "今日已喝 " + getMl() + " ml";
-      btns = '<button style="background:#0E7490" onclick="opener.addWater(1);window.close()">一口 +' + sipAmt() + 'ml</button>'
-           + '<button style="background:#0E7490" onclick="opener.addWater(2);window.close()">兩口 +' + (sipAmt()*2) + 'ml</button>'
-           + '<button style="background:#0E7490" onclick="opener.addBottle(0.5);window.close()">半壺 +' + Math.round(bottleAmt()/2) + 'ml</button>'
-           + '<button style="background:#8DA6AB" onclick="opener.snoozeWater();window.close()">稍後 10 分</button>';
-    }else if(type === "stand"){
-      icon = "🧍"; title = "該站起來了"; body = "離開座位活動 2~3 分鐘";
-      btns = '<button style="background:#C2731A" onclick="opener.markStand();window.close()">我站過了</button>'
-           + '<button style="background:#8DA6AB" onclick="opener.snoozeStand();window.close()">稍後 10 分</button>';
-    }else{
-      icon = "✅"; title = "測試彈出視窗"; body = "提醒時間到就會像這樣跳出來";
-      btns = '<button style="background:#0E7490" onclick="window.close()">關閉</button>';
-    }
-    p.document.write(
-      '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>健康提醒</title>'
-      + '<style>body{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;background:#F0F7F8;'
-      + 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;}'
-      + '.ic{font-size:48px;}h2{margin:8px 0 4px;color:#0F3B42;font-size:20px;}'
-      + 'p{margin:0 0 14px;color:#5B7E85;font-size:14px;}'
-      + '.bs{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:0 14px;}'
-      + '.bs button{border:none;border-radius:10px;padding:11px 14px;font-size:15px;font-weight:700;'
-      + 'color:#fff;cursor:pointer;min-width:100px;}</style></head><body>'
-      + '<div class="ic">' + icon + '</div><h2>' + title + '</h2><p>' + body + '</p>'
-      + '<div class="bs">' + btns + '</div></body></html>'
-    );
-    p.document.close();
-    p.focus();
-  }catch(e){}
 }
 
 /* ---------- 桌面浮動時鐘(置頂、可拖曳、含秒數) ---------- */
@@ -617,11 +793,24 @@ function clockInnerHTML(){
     + '#ov{position:absolute;bottom:1px;right:4px;width:34px;height:44px;}'
     + '#ob{width:100%;height:100%;transform-origin:50% 90%;animation:osway 3.4s ease-in-out infinite;}'
     + '#ob.hi2{animation:hifive2 .8s ease-in-out infinite;}'
+    + '@keyframes party{0%,50%,100%{transform:translateY(0) rotate(0)}25%{transform:translateY(-10px) rotate(-10deg)}75%{transform:translateY(-10px) rotate(10deg)}}'
+    + '#bb.party,#ob.party{animation:party .7s ease-in-out infinite;}'
     + '#ob img{width:100%;height:100%;object-fit:contain;pointer-events:none;}'
+    /* 提醒層:時間到蓋在時鐘上,變色閃爍 */
+    + '@keyframes flash{0%,100%{filter:brightness(1)}50%{filter:brightness(1.35)}}'
+    + '#al{position:absolute;inset:0;display:none;align-items:center;justify-content:center;gap:5px;'
+    + 'padding:0 6px;z-index:5;animation:flash 1s ease-in-out infinite;}'
+    + '#al.show{display:flex;}'
+    + '#al .ic{font-size:22px;margin-right:2px;}'
+    + '#al button{border:none;border-radius:6px;padding:5px 8px;font-size:13px;font-weight:700;cursor:pointer;'
+    + 'color:#fff;background:rgba(255,255,255,.25);font-family:"Microsoft JhengHei",sans-serif;}'
+    + '#al button:hover{background:rgba(255,255,255,.4);}'
+    + '#al button.ghost{background:rgba(0,0,0,.25);}'
     + '</style>'
     + '<div id="wrap"><div id="ck"></div>'
     + '<div id="mv"><div id="fc"><div id="bb"><img src="' + CLOCK_IMG + '"></div></div></div>'
-    + '<div id="ov"><div id="ob"><img src="' + CLOCK_IMG2 + '"></div></div></div>';
+    + '<div id="ov"><div id="ob"><img src="' + CLOCK_IMG2 + '"></div></div>'
+    + '<div id="al"></div></div>';
 }
 let clockWin = null, clockTimer = null;
 function stopClock(){
@@ -657,11 +846,19 @@ function startClockLoop(doc){
       else if(p === "back"){ mv.className = "back"; }
       else { mv.className = ""; lastSwitch = 0; }
     }
-    if(phase === "idle" && Date.now() - lastSwitch > 7000){
-      lastSwitch = Date.now();
-      let next;
-      do{ next = acts[Math.floor(Math.random()*acts.length)]; }while(next === bb.className);
-      bb.className = next;
+    if(phase === "idle"){
+      if(Date.now() < celebrateUntil){
+        /* 達標:兩隻貓一起跳 */
+        if(bb.className !== "party"){ bb.className = "party"; ob.className = "party"; }
+      }else{
+        if(ob.className === "party"){ ob.className = ""; lastSwitch = 0; }
+        if(Date.now() - lastSwitch > 7000){
+          lastSwitch = Date.now();
+          let next;
+          do{ next = acts[Math.floor(Math.random()*acts.length)]; }while(next === bb.className);
+          bb.className = next;
+        }
+      }
     }
   };
   upd();
@@ -677,6 +874,7 @@ async function toggleClock(on){
       doc.body.style.cssText = "margin:0;";
       doc.body.innerHTML = clockInnerHTML();
       startClockLoop(doc);
+      if(queue.length) showCurrent();
       clockWin.addEventListener("pagehide", clockClosedByUser);
       toast("時鐘已置頂,可直接拖曳到左下角");
       return;
@@ -698,6 +896,7 @@ async function toggleClock(on){
     p.document.close();
     clockWin = p;
     startClockLoop(p.document);
+    if(queue.length) showCurrent();
     const watch = setInterval(()=>{
       if(!clockWin || clockWin.closed){ clearInterval(watch); clockClosedByUser(); }
     }, 1000);
@@ -715,22 +914,18 @@ function tick(){
   const working = !paused && inWorkTime();
   if(working && !wasWorking){
     /* 剛進入提醒時段(含午休結束):重新起算 */
-    nextWater = now + mins($("waterMin").value);
-    nextStand = now + mins($("standMin").value);
+    schedule("water");
+    schedule("stand");
   }
   wasWorking = working;
   if(working){
     if($("waterOn").checked && now >= nextWater){
-      notify("該喝水了 💧", "今日已喝 " + getMl() + " ml", "water");
-      waterModal();
-      popupReminder("water");
-      nextWater = now + mins($("waterMin").value);
+      schedule("water");
+      fireReminder("water");
     }
     if($("standOn").checked && now >= nextStand){
-      notify("該站起來了 🧍", "離開座位活動 2~3 分鐘", "stand");
-      standModal();
-      popupReminder("stand");
-      nextStand = now + mins($("standMin").value);
+      schedule("stand");
+      fireReminder("stand");
     }
   }
   render();
@@ -755,16 +950,20 @@ function afterEnd(t){
   return t >= endTs;
 }
 function render(){
-  const ml = getMl(), goal = Math.max(100, parseInt($("goalMl").value)||2000);
+  const ml = getMl(), goal = goalAmt();
   $("mlNum").textContent = ml;
   $("mlGoal").textContent = goal;
   $("bottleCnt").textContent = (ml / bottleAmt()).toFixed(1);
   $("mlFill").style.width = Math.min(100, ml/goal*100) + "%";
+  $("mlFill").classList.toggle("done", ml >= goal);
+  renderHistory();
+  renderLog();
   $("qSip1").textContent = "+一口 " + sipAmt() + "ml";
   $("qSip2").textContent = "+兩口 " + (sipAmt()*2) + "ml";
   $("qHalf").textContent = "+半壺 " + Math.round(bottleAmt()/2) + "ml";
   $("qFull").textContent = "+一壺 " + bottleAmt() + "ml";
   $("waterDone").textContent = "喝一口 +" + sipAmt() + "ml";
+  $("qUndo").disabled = getRec().log.length === 0;
 
   const working = inWorkTime() && !paused;
   let stateText = "";
@@ -774,7 +973,9 @@ function render(){
     const cur = n.getHours()*60 + n.getMinutes();
     const curHM = String(n.getHours()).padStart(2,"0") + ":" + String(n.getMinutes()).padStart(2,"0");
     const ls = $("lunchStart").value, le = $("lunchEnd").value;
-    if($("lunchOn").checked && cur >= hmToMin(ls) && cur < hmToMin(le)){
+    if(!dayOk()){
+      stateText = "今天週" + WEEK[effDay()] + ",不提醒(可在設定勾選)";
+    }else if($("lunchOn").checked && cur >= hmToMin(ls) && cur < hmToMin(le)){
       stateText = "午休中(" + ls + "~" + le + "),暫停提醒";
     }else{
       stateText = "現在 " + curHM + ",不在時段 " + $("workStart").value + "~" + $("workEnd").value + " 內";
@@ -787,7 +988,7 @@ function render(){
   $("waterCount").textContent = working && $("waterOn").checked ? fmtCountdown(nextWater) : "--:--";
   $("standCount").textContent = working && $("standOn").checked ? fmtCountdown(nextStand) : "--:--";
   $("waterNext").textContent = working && $("waterOn").checked
-    ? (afterEnd(nextWater) ? "⚠ 超過今日時段,不會提醒" : "預計 " + fmtClock(nextWater)) : stateText;
+    ? (afterEnd(nextWater) ? "⚠ 超過今日時段,不會提醒" : "預計 " + fmtClock(nextWater) + (relaxed() ? "・已達標放寬" : "")) : stateText;
   $("standNext").textContent = working && $("standOn").checked
     ? (afterEnd(nextStand) ? "⚠ 超過今日時段,不會提醒" : "預計 " + fmtClock(nextStand)) : stateText;
 
@@ -799,15 +1000,57 @@ function render(){
       : "健康提醒";
   }
 }
-function togglePause(){
-  paused = !paused;
+/* 近 7 天長條圖(內容有變才重畫) */
+let histSig = "";
+function renderHistory(){
+  const goal = goalAmt(), hs = getHist(), t = new Date();
+  const days = [];
+  for(let i = 6; i >= 0; i--){
+    const d = new Date(t.getFullYear(), t.getMonth(), t.getDate() - i);
+    days.push({d:d, ml: i === 0 ? getMl() : (hs[dayKey(d)] || 0), today: i === 0});
+  }
+  const sig = goal + "|" + days.map(x=>x.ml).join(",") + "|" + dayKey(t);
+  if(sig === histSig) return;
+  histSig = sig;
+  const max = Math.max(goal, ...days.map(x=>x.ml)) || 1;
+  let html = '<div class="goalLine" style="bottom:' + (20 + Math.round(goal/max*72)) + 'px"><span>目標 ' + goal + '</span></div>';
+  days.forEach(x=>{
+    const hpx = Math.max(2, Math.round(x.ml/max*72));
+    const label = x.today ? "今天" : (x.d.getMonth()+1) + "/" + x.d.getDate();
+    html += '<div class="col' + (x.today ? ' today' : '') + '" title="週' + WEEK[x.d.getDay()] + ' ' + x.ml + ' ml">'
+      + '<div class="val">' + (x.ml || "") + '</div>'
+      + '<div class="bar2' + (x.ml >= goal ? ' hit' : '') + '" style="height:' + hpx + 'px"></div>'
+      + '<div class="day">' + label + '</div></div>';
+  });
+  $("chart").innerHTML = html;
+  const rec = days.filter(x=>x.ml > 0);
+  const avg = rec.length ? Math.round(rec.reduce((s,x)=>s+x.ml,0) / rec.length) : 0;
+  $("histAvg").textContent = rec.length
+    ? "有紀錄日平均 " + avg + " ml・達標 " + days.filter(x=>x.ml >= goal).length + "/7 天"
+    : "還沒有紀錄";
+}
+/* 今日明細 */
+let logSig = "";
+function renderLog(){
+  const log = getRec().log;
+  const sig = log.length + "|" + (log.length ? log[log.length-1].t : 0);
+  if(sig === logSig) return;
+  logSig = sig;
+  $("logSum").textContent = "今日明細(" + log.length + " 筆)";
+  if(!log.length){ $("logList").innerHTML = '<div class="logEmpty">今天還沒有喝水紀錄</div>'; return; }
+  $("logList").innerHTML = log.slice().reverse().map(e =>
+    '<div class="logItem"><span>' + fmtClock(e.t) + '</span><b>+' + e.ml + ' ml</b></div>').join("");
+}
+function applyPauseUI(){
   const b = $("pauseBtn");
   b.textContent = paused ? "繼續提醒" : "暫停提醒";
   b.classList.toggle("paused", paused);
-  if(!paused){
-    nextWater = Date.now() + mins($("waterMin").value);
-    nextStand = Date.now() + mins($("standMin").value);
-  }
+}
+function togglePause(){
+  paused = !paused;
+  applyPauseUI();
+  if(!paused){ schedule("water"); schedule("stand"); }
+  saveState();
   render();
 }
 
@@ -832,8 +1075,11 @@ fillTimeSelect("lunchEnd","13:00");
 loadSettings();
 saveSettings();  /* 完成設定版本遷移 */
 updatePermBanner();
-nextWater = Date.now() + mins($("waterMin").value);
-nextStand = Date.now() + mins($("standMin").value);
+migrateHistory();
+saveRec(getRec());  /* 今天的總量同步進歷史 */
+restoreState();
+applyPauseUI();
+wasWorking = !paused && inWorkTime();
 render();
 setInterval(tick, 1000);
 </script>
