@@ -93,6 +93,14 @@
   #pauseBtn.paused{background:var(--ok);}
 
   /* 設定 */
+  /* 頁首提示列 */
+  .infoBar{display:none;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:var(--ink-soft);line-height:1.6;}
+  .infoBar.warn{background:#FFF7E6;border-color:#F0D9A8;color:#8A5A12;}
+  #clockBarBtn{background:var(--ink);color:#fff;border:none;border-radius:8px;padding:9px 14px;
+    font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;}
+  #clockBar span{flex:1;}
+  #clockBarX{background:none;border:none;color:var(--ink-soft);font-size:16px;cursor:pointer;padding:4px;}
   /* 近 7 天紀錄 */
   .hist{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:16px;}
   .histHead{font-size:15px;font-weight:700;display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;}
@@ -207,6 +215,13 @@
     <span id="notiState"></span>
   </header>
 
+  <div id="leaderBanner" class="infoBar warn">⚠ 已在另一個分頁執行提醒,這個分頁只做紀錄,不會重複跳提醒。關掉另一個分頁後,這裡會自動接手。</div>
+  <div id="clockBar" class="infoBar">
+    <button id="clockBarBtn">🕐 開啟置頂時鐘</button>
+    <span>提醒會直接顯示在時鐘上,不會被其他視窗蓋住</span>
+    <button id="clockBarX" title="這次先不要">✕</button>
+  </div>
+
   <div id="permBanner">
     尚未開啟桌面通知權限,提醒只會在此頁面顯示。<br>
     <button onclick="askPermission()">開啟桌面通知</button>
@@ -312,6 +327,10 @@
       <span><select id="lunchStart"></select> ~ <select id="lunchEnd"></select></span>
     </div>
     <div class="setRow">
+      <label>離開座位時暫停提醒(鎖定螢幕或 5 分鐘沒動作)</label>
+      <label class="switch"><input type="checkbox" id="idleOn"><span class="slider"></span></label>
+    </div>
+    <div class="setRow">
       <label>提示音</label>
       <label class="switch"><input type="checkbox" id="soundOn" checked><span class="slider"></span></label>
     </div>
@@ -329,6 +348,12 @@
     <button onclick="testNotify()">測試通知</button>
     <button onclick="resetToday()">重設今日紀錄</button>
   </div>
+  <div class="btnRow" style="margin-top:10px;">
+    <button onclick="exportBackup()">匯出備份</button>
+    <button onclick="document.getElementById('importFile').click()">匯入備份</button>
+    <button onclick="exportCSV()">匯出 CSV</button>
+  </div>
+  <input type="file" id="importFile" accept=".json,application/json" style="display:none">
 
   <p class="note">
     說明:提醒只在勾選的星期與「提醒時段」內出現,午休自動跳過。電腦休眠或分頁關閉時不會提醒。
@@ -349,7 +374,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const SETTING_KEYS = ["waterOn","waterMin","goalMl","sipMl","bottleMl","standOn","standMin","workStart","workEnd","lunchOn","lunchStart","lunchEnd","soundOn","popupOn","relaxOn","day0","day1","day2","day3","day4","day5","day6"];
+const SETTING_KEYS = ["waterOn","waterMin","goalMl","sipMl","bottleMl","standOn","standMin","workStart","workEnd","lunchOn","lunchStart","lunchEnd","soundOn","popupOn","relaxOn","idleOn","day0","day1","day2","day3","day4","day5","day6"];
 let nextWater = 0, nextStand = 0, paused = false;
 
 /* ---------- 設定存取 ---------- */
@@ -624,9 +649,10 @@ function showCurrent(){
   else popupOut(def);
   render();
 }
-function dismissReminder(type){
+function dismissReminder(type, remote){
   queue = queue.filter(t => t !== type);
   showCurrent();
+  if(!remote && bc) bc.postMessage({dismiss:type});
 }
 function hideAllOutputs(){ closeModal(); clearClockAlert(); closePopupOut(); }
 
@@ -820,6 +846,7 @@ function stopClock(){
 function clockClosedByUser(){
   clearInterval(clockTimer); clockTimer = null; clockWin = null;
   $("clockOn").checked = false;
+  render();
 }
 function startClockLoop(doc){
   const pad = v => String(v).padStart(2,"0");
@@ -907,9 +934,160 @@ async function toggleClock(on){
 }
 $("clockOn").addEventListener("change", e => toggleClock(e.target.checked));
 
+/* ---------- 單一分頁負責提醒 ----------
+   只有拿到「鎖」的分頁會跳提醒;其他分頁只做紀錄,資料透過瀏覽器儲存同步 */
+let isLeader = true, leaderChecked = false;
+const bc = ("BroadcastChannel" in window) ? new BroadcastChannel("healthReminder") : null;
+if(bc) bc.onmessage = e => { if(e.data && e.data.dismiss) dismissReminder(e.data.dismiss, true); };
+function initLeader(){
+  if(!(navigator.locks && navigator.locks.request)){ leaderChecked = true; return; }
+  isLeader = false;
+  let wasFollower = false;
+  setTimeout(()=>{ leaderChecked = true; if(!isLeader) wasFollower = true; render(); }, 400);
+  navigator.locks.request("healthReminder-leader", ()=>{
+    isLeader = true;
+    wasWorking = !paused && inWorkTime();
+    if(wasFollower) toast("另一個分頁已關閉,改由這裡負責提醒", 3500);
+    render();
+    return new Promise(()=>{});  /* 一直持有,直到分頁關閉 */
+  });
+}
+window.addEventListener("storage", e=>{
+  if(e.key === STATE_KEY){
+    try{
+      const s = JSON.parse(e.newValue || "null");
+      if(s){ nextWater = s.nextWater; nextStand = s.nextStand; paused = !!s.paused; applyPauseUI(); }
+    }catch(err){}
+  }else if(e.key === "healthReminderSettings"){
+    loadSettings();
+  }
+  render();
+});
+
+/* ---------- 離開座位偵測 ---------- */
+let away = false, idleCtl = null;
+function idleOff(msg){
+  $("idleOn").checked = false;
+  saveSettings();
+  if(msg) toast(msg, 3500);
+  render();
+}
+async function startIdle(fromClick){
+  if(!("IdleDetector" in window)){ idleOff("此瀏覽器不支援離開座位偵測"); return; }
+  try{
+    if(fromClick){
+      const p = await IdleDetector.requestPermission();
+      if(p !== "granted"){ idleOff("沒有允許偵測,已關閉此功能"); return; }
+    }
+    stopIdle();
+    idleCtl = new AbortController();
+    const det = new IdleDetector();
+    det.addEventListener("change", ()=>{
+      const was = away;
+      away = det.userState === "idle" || det.screenState === "locked";
+      if(was && !away) toast("歡迎回來!");
+      render();
+    });
+    await det.start({ threshold: 5*60000, signal: idleCtl.signal });
+    if(fromClick) toast("已開啟:離開座位時暫停提醒");
+  }catch(e){
+    idleOff(fromClick ? "無法開啟離開座位偵測" : "請再點一次「離開座位時暫停」開關以允許");
+  }
+}
+function stopIdle(){
+  if(idleCtl){ try{ idleCtl.abort(); }catch(e){} idleCtl = null; }
+  away = false;
+}
+$("idleOn").addEventListener("change", e => { if(e.target.checked) startIdle(true); else { stopIdle(); render(); } });
+function initIdle(){
+  if(!$("idleOn").checked) return;
+  if(!("IdleDetector" in window)){ idleOff(); return; }
+  try{
+    navigator.permissions.query({name:"idle-detection"})
+      .then(r => { if(r.state === "granted") startIdle(false); else idleOff("請再點一次「離開座位時暫停」開關以允許"); })
+      .catch(()=>startIdle(false));
+  }catch(e){ startIdle(false); }
+}
+
+/* ---------- 開啟時鐘提示列 ---------- */
+let clockBarHidden = false;
+$("clockBarBtn").addEventListener("click", ()=>{ $("clockOn").checked = true; toggleClock(true); });
+$("clockBarX").addEventListener("click", ()=>{ clockBarHidden = true; render(); });
+
+/* ---------- 備份:匯出 / 匯入 / CSV ---------- */
+const BACKUP_KEYS = ["healthReminderSettings","healthReminderMl","healthReminderHistory","healthReminderState"];
+function stamp(){
+  const d = new Date();
+  return d.getFullYear() + String(d.getMonth()+1).padStart(2,"0") + String(d.getDate()).padStart(2,"0");
+}
+function downloadText(name, text, type){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], {type:type}));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+function exportBackup(){
+  saveRec(getRec());
+  const out = {app:"health-reminder", version:1, exportedAt:new Date().toISOString(), data:{}};
+  BACKUP_KEYS.forEach(k=>{ const v = localStorage.getItem(k); if(v !== null) out.data[k] = v; });
+  downloadText("健康提醒備份_" + stamp() + ".json", JSON.stringify(out, null, 2), "application/json");
+  toast("已匯出備份檔");
+}
+function exportCSV(){
+  saveRec(getRec());
+  const hs = getHist(), goal = goalAmt();
+  const keys = Object.keys(hs).sort((a,b)=>keyTs(a)-keyTs(b));
+  let csv = "\ufeff日期,星期,喝水量(ml),目標(ml),是否達標\n";
+  keys.forEach(k=>{
+    const d = new Date(keyTs(k));
+    const ds = d.getFullYear() + "/" + String(d.getMonth()+1).padStart(2,"0") + "/" + String(d.getDate()).padStart(2,"0");
+    csv += ds + ",週" + WEEK[d.getDay()] + "," + hs[k] + "," + goal + "," + (hs[k] >= goal ? "是" : "否") + "\n";
+  });
+  downloadText("喝水紀錄_" + stamp() + ".csv", csv, "text/csv;charset=utf-8");
+  toast("已匯出 CSV(" + keys.length + " 天)");
+}
+function importBackup(text){
+  const obj = JSON.parse(text);
+  if(obj.app !== "health-reminder" || !obj.data) throw new Error("這不是健康提醒的備份檔");
+  const d = obj.data;
+  if(d.healthReminderSettings) localStorage.setItem("healthReminderSettings", d.healthReminderSettings);
+  /* 紀錄合併:同一天取較大值,不會蓋掉現有資料 */
+  const cur = getHist();
+  let inc = {};
+  try{ inc = JSON.parse(d.healthReminderHistory || "{}") || {}; }catch(e){}
+  for(const k in inc){ if(!(cur[k] >= inc[k])) cur[k] = inc[k]; }
+  try{
+    const r = JSON.parse(d.healthReminderMl || "{}");
+    if(r.date === todayKey() && r.ml > getMl()){
+      localStorage.setItem("healthReminderMl", JSON.stringify({date:r.date, ml:r.ml, log:r.log || []}));
+    }
+    if(r.date && r.ml && !(cur[r.date] >= r.ml)) cur[r.date] = r.ml;
+  }catch(e){}
+  localStorage.setItem(HIST_KEY, JSON.stringify(cur));
+  return Object.keys(inc).length;
+}
+$("importFile").addEventListener("change", e=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  const rd = new FileReader();
+  rd.onload = ()=>{
+    if(!confirm("匯入會套用備份裡的設定,並合併喝水紀錄(同一天取較大值,不會刪掉現有紀錄)。確定匯入?")) return;
+    try{
+      const n = importBackup(rd.result);
+      toast("匯入完成(" + n + " 天紀錄),重新載入中…", 3000);
+      setTimeout(()=>location.reload(), 900);
+    }catch(err){ alert("匯入失敗:" + err.message); }
+  };
+  rd.readAsText(f);
+  e.target.value = "";
+});
+
 /* ---------- 主迴圈 ---------- */
 let wasWorking = false;
 function tick(){
+  if(!isLeader){ render(); return; }  /* 其他分頁負責提醒,這裡只顯示 */
   const now = Date.now();
   const working = !paused && inWorkTime();
   if(working && !wasWorking){
@@ -918,7 +1096,7 @@ function tick(){
     schedule("stand");
   }
   wasWorking = working;
-  if(working){
+  if(working && !away){  /* 離開座位時先不跳,回來後到期的會立刻提醒 */
     if($("waterOn").checked && now >= nextWater){
       schedule("water");
       fireReminder("water");
@@ -984,13 +1162,17 @@ function render(){
 
   $("waterCard").classList.toggle("disabled", !$("waterOn").checked);
   $("standCard").classList.toggle("disabled", !$("standOn").checked);
+  $("leaderBanner").style.display = (!isLeader && leaderChecked) ? "flex" : "none";
+  $("clockBar").style.display = (isLeader && !clockDoc() && !clockBarHidden) ? "flex" : "none";
+  $("clockOn").disabled = !isLeader && !clockDoc();
+  const awayNow = away && working;
 
   $("waterCount").textContent = working && $("waterOn").checked ? fmtCountdown(nextWater) : "--:--";
   $("standCount").textContent = working && $("standOn").checked ? fmtCountdown(nextStand) : "--:--";
   $("waterNext").textContent = working && $("waterOn").checked
-    ? (afterEnd(nextWater) ? "⚠ 超過今日時段,不會提醒" : "預計 " + fmtClock(nextWater) + (relaxed() ? "・已達標放寬" : "")) : stateText;
+    ? awayNow ? "🚶 離開座位中,回來再提醒" : (afterEnd(nextWater) ? "⚠ 超過今日時段,不會提醒" : "預計 " + fmtClock(nextWater) + (relaxed() ? "・已達標放寬" : "")) : stateText;
   $("standNext").textContent = working && $("standOn").checked
-    ? (afterEnd(nextStand) ? "⚠ 超過今日時段,不會提醒" : "預計 " + fmtClock(nextStand)) : stateText;
+    ? awayNow ? "🚶 離開座位中,回來再提醒" : (afterEnd(nextStand) ? "⚠ 超過今日時段,不會提醒" : "預計 " + fmtClock(nextStand)) : stateText;
 
   if($("modalWrap").classList.contains("show")){
     document.title = "🔔 有提醒!點回來看";
@@ -1082,6 +1264,8 @@ applyPauseUI();
 wasWorking = !paused && inWorkTime();
 render();
 setInterval(tick, 1000);
+initLeader();
+initIdle();
 </script>
 </body>
 </html>
